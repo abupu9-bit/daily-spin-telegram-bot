@@ -1,8 +1,12 @@
-require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const { loadDB, saveDB } = require("./storage");
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const BOT_TOKEN = process.env.BOT_TOKEN;
+if (!BOT_TOKEN) {
+  throw new Error("BOT_TOKEN not set");
+}
+
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 function getUser(db, userId) {
   if (!db.users[userId]) {
@@ -23,7 +27,6 @@ bot.onText(/\/start(.*)/, (msg, match) => {
 
   const db = loadDB();
   const user = getUser(db, userId);
-  const now = Date.now();
 
   if (!user.referredBy && param && param.startsWith("ref_")) {
     const referrerId = param.replace("ref_", "");
@@ -33,10 +36,7 @@ bot.onText(/\/start(.*)/, (msg, match) => {
       db.users[referrerId].referrals += 1;
       db.users[referrerId].coins += 100;
 
-      bot.sendMessage(
-        referrerId,
-        "🎉 Referral valid! +100 coin."
-      );
+      bot.sendMessage(referrerId, "🎉 Referral valid! +100 coin.");
     }
   }
 
@@ -47,7 +47,6 @@ bot.onText(/\/start(.*)/, (msg, match) => {
     "🎰 Selamat datang di Daily Spin Bot!\n\n" +
     "🎁 Spin gratis setiap hari\n" +
     "👥 Ajak teman & dapatkan bonus\n\n" +
-    "Perintah:\n" +
     "/ref - Link referral\n" +
     "/refboard - Papan referral"
   );
