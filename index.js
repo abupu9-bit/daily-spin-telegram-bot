@@ -16,27 +16,39 @@ function getUser(db, userId) {
 }
 
 // START + REFERRAL
-bot.onText(/\/start(.*)/, (msg, match) => {
-  const userId = msg.from.id.toString();
-  const param = match[1]?.trim();
-  const db = loadDB();
+const now = Date.now();
 
-  const user = getUser(db, userId);
+if (!user.referredBy && param && param.startsWith("ref_")) {
+  const referrerId = param.replace("ref_", "");
 
-  if (!user.referredBy && param && param.startsWith("ref_")) {
-    const referrerId = param.replace("ref_", "");
+  // Cegah self-referral
+  if (referrerId === userId) return;
 
-    if (referrerId !== userId && db.users[referrerId]) {
-      user.referredBy = referrerId;
-      db.users[referrerId].referrals += 1;
-      db.users[referrerId].coins += 100;
+  // Simpan waktu join user
+  if (!user.joinedAt) user.joinedAt = now;
 
-      bot.sendMessage(
-        referrerId,
-        "🎉 Referral berhasil! Kamu dapat +100 coin."
-      );
-    }
+  // User harus akun lama (min 1 hari)
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+  if (now - user.joinedAt < ONE_DAY) {
+    bot.sendMessage(
+      msg.chat.id,
+      "⛔ Referral aktif setelah akun kamu berusia 1 hari."
+    );
+    return;
   }
+
+  if (db.users[referrerId]) {
+    user.referredBy = referrerId;
+    db.users[referrerId].referrals += 1;
+    db.users[referrerId].coins += 100;
+
+    bot.sendMessage(
+      referrerId,
+      "🎉 Referral valid! +100 coin."
+    );
+  }
+}
+
 
   saveDB(db);
 
