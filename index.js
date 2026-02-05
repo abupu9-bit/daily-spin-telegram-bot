@@ -1,98 +1,84 @@
-const TelegramBot = require('node-telegram-bot-api');
+require("dotenv").config();
+const TelegramBot = require("node-telegram-bot-api");
+const { loadDB, saveDB } = require("./storage");
 
-// ⚠️ TOKEN diambil dari ENV (AMAN UNTUK GITHUB)
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// Simpan data sementara (nanti bisa ganti DB)
-const users = {};
-
-// Helper tanggal hari ini
-function today() {
-  return new Date().toISOString().split('T')[0];
+function getUser(db, userId) {
+  if (!db.users[userId]) {
+    db.users[userId] = {
+      coins: 0,
+      referrals: 0,
+      referredBy: null
+    };
+  }
+  return db.users[userId];
 }
 
-// START
-bot.onText(/\/start/, (msg) => {
-  const id = msg.chat.id;
+// START + REFERRAL
+bot.onText(/\/start(.*)/, (msg, match) => {
+  const userId = msg.from.id.toString();
+  const param = match[1]?.trim();
+  const db = loadDB();
 
-  if (!users[id]) {
-    users[id] = { lastSpin: null, coins: 0 };
+  const user = getUser(db, userId);
+
+  if (!user.referredBy && param && param.startsWith("ref_")) {
+    const referrerId = param.replace("ref_", "");
+
+    if (referrerId !== userId && db.users[referrerId]) {
+      user.referredBy = referrerId;
+      db.users[referrerId].referrals += 1;
+      db.users[referrerId].coins += 100;
+
+      bot.sendMessage(
+        referrerId,
+        "🎉 Referral berhasil! Kamu dapat +100 coin."
+      );
+    }
   }
 
+  saveDB(db);
+
   bot.sendMessage(
-    id,
-    `🎡 *Daily Spin Bot*
-
-🎁 1x spin gratis setiap hari
-📺 Mau spin lagi? → nonton iklan
-🔄 Reset tiap hari
-
-Tekan /spin untuk mulai`,
-    { parse_mode: 'Markdown' }
+    msg.chat.id,
+    "🎰 Selamat datang di Daily Spin Bot!\n\n" +
+    "🎁 Spin gratis setiap hari\n" +
+    "👥 Ajak teman & dapatkan bonus\n\n" +
+    "Perintah:\n" +
+    "/ref - Link referral\n" +
+    "/refboard - Papan referral"
   );
 });
 
-// SPIN
-bot.onText(/\/spin/, (msg) => {
-  const id = msg.chat.id;
-
-  if (!users[id]) {
-    users[id] = { lastSpin: null, coins: 0 };
-  }
-
-  if (users[id].lastSpin === today()) {
-    bot.sendMessage(
-      id,
-      `⛔ Spin gratis sudah dipakai hari ini
-
-📺 Mau spin lagi?
-👉 Nonton iklan lalu klik /reward`
-    );
-    return;
-  }
-
-  const reward = Math.floor(Math.random() * 50) + 1;
-  users[id].coins += reward;
-  users[id].lastSpin = today();
-
+// LINK REFERRAL
+bot.onText(/\/ref/, (msg) => {
+  const link = `https://t.me/${process.env.BOT_USERNAME}?start=ref_${msg.from.id}`;
   bot.sendMessage(
-    id,
-    `🎉 Kamu dapat *${reward} coin*!
-
-💰 Total: ${users[id].coins}
-⏰ Spin gratis reset besok`,
-    { parse_mode: 'Markdown' }
+    msg.chat.id,
+    `👥 Link referral kamu:\n${link}\n\n🎁 Bonus 100 coin / referral`
   );
 });
 
-// REWARDED (IKLAN)
-bot.onText(/\/reward/, (msg) => {
-  const id = msg.chat.id;
+// REFERRAL LEADERBOARD
+bot.onText(/\/refboard/, (msg) => {
+  const db = loadDB();
 
-  const reward = Math.floor(Math.random() * 30) + 1;
-  users[id].coins += reward;
+  const top = Object.entries(db.users)
+    .sort((a, b) => b[1].referrals - a[1].referrals)
+    .slice(0, 10);
 
-  bot.sendMessage(
-    id,
-    `📺 Iklan selesai!
+  if (top.length === 0) {
+    return bot.sendMessage(msg.chat.id, "Belum ada referral 😅");
+  }
 
-🎁 Bonus *${reward} coin*
-💰 Total: ${users[id].coins}`
-  );
-});
-
-// LEADERBOARD
-bot.onText(/\/leaderboard/, (msg) => {
-  const sorted = Object.entries(users)
-    .sort((a, b) => b[1].coins - a[1].coins)
-    .slice(0, 5);
-
-  let text = `🏆 *Leaderboard Mingguan*\n\n`;
-  sorted.forEach((u, i) => {
-    text += `${i + 1}. User ${u[0]} — ${u[1].coins} coin\n`;
+  let text = "🏆 Referral Leaderboard\n\n";
+  top.forEach(([id, data], i) => {
+    text += `${i + 1}. User ${id} — ${data.referrals} referral\n`;
   });
 
-  bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown' });
+  bot.sendMessage(msg.chat.id, text);
 });
 
-console.log('✅ Daily Spin Bot running...');
+console.log("🤖 Bot running...");
+
