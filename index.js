@@ -3,112 +3,113 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-// ========================
-// ENV CHECK
-// ========================
-if (!process.env.BOT_TOKEN) {
-  throw new Error("BOT_TOKEN belum diset di environment variable");
-}
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
-// ========================
-// INIT BOT
-// ========================
-const bot = new TelegramBot(process.env.BOT_TOKEN, {
-  polling: true
-});
+console.log("🤖 Daily Spin Bot running");
 
-console.log("🤖 Bot Telegram berjalan...");
-
-// ========================
-// SIMPLE MEMORY STORAGE
-// (untuk demo, bisa diganti DB)
-// ========================
+// ================= STORAGE =================
 const users = {};
-
-// ========================
-// UTIL
-// ========================
-function getTodayKey() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function getUser(id) {
   if (!users[id]) {
     users[id] = {
       coins: 0,
-      lastSpin: null
+      lastSpin: null,
+      refBy: null,
+      refs: 0
     };
   }
   return users[id];
 }
 
-// ========================
-// COMMAND: /start
-// ========================
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-  bot.sendMessage(
-    chatId,
-    `🎉 *Welcome Daily Spin Bot!*\n\n` +
-    `🎁 Spin gratis 1x per hari\n` +
-    `🪙 Kumpulkan koin\n\n` +
-    `Klik /spin untuk mulai!`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// ========================
-// COMMAND: /spin
-// ========================
-bot.onText(/\/spin/, (msg) => {
+// ================= /start =================
+bot.onText(/\/start(.*)/, (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const user = getUser(userId);
 
-  const today = getTodayKey();
-
-  if (user.lastSpin === today) {
-    bot.sendMessage(
-      chatId,
-      "⏳ Kamu sudah spin hari ini.\nCoba lagi besok ya!"
-    );
-    return;
+  const refId = match[1]?.trim();
+  if (refId && !user.refBy && refId !== String(userId)) {
+    user.refBy = refId;
+    getUser(refId).refs += 1;
+    getUser(refId).coins += 20;
   }
 
-  // random reward
-  const reward = Math.floor(Math.random() * 50) + 10;
-
-  user.coins += reward;
-  user.lastSpin = today;
-
-  bot.sendMessage(
-    chatId,
-    `🎉 *Spin Berhasil!*\n` +
-    `🪙 Kamu dapat *${reward} koin*\n\n` +
-    `Total koin: *${user.coins}*`,
-    { parse_mode: "Markdown" }
-  );
+  bot.sendMessage(chatId, "🎰 *Daily Spin*\nSpin gratis setiap hari!", {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🎰 SPIN", callback_data: "spin" }],
+        [{ text: "👥 Referral", callback_data: "ref" }],
+        [{ text: "💰 Balance", callback_data: "balance" }]
+      ]
+    }
+  });
 });
 
-// ========================
-// COMMAND: /balance
-// ========================
-bot.onText(/\/balance/, (msg) => {
+// ================= CALLBACK =================
+bot.on("callback_query", (q) => {
+  const chatId = q.message.chat.id;
+  const userId = q.from.id;
+  const user = getUser(userId);
+
+  if (q.data === "spin") {
+    if (user.lastSpin === today()) {
+      bot.answerCallbackQuery(q.id, {
+        text: "⏳ Sudah spin hari ini!"
+      });
+      return;
+    }
+
+    const reward = Math.floor(Math.random() * 50) + 10;
+    user.coins += reward;
+    user.lastSpin = today();
+
+    bot.editMessageText(
+      `🎉 Kamu dapat *${reward} koin*\n💰 Total: *${user.coins}*`,
+      {
+        chat_id: chatId,
+        message_id: q.message.message_id,
+        parse_mode: "Markdown"
+      }
+    );
+  }
+
+  if (q.data === "balance") {
+    bot.answerCallbackQuery(q.id, {
+      text: `💰 Koin kamu: ${user.coins}`,
+      show_alert: true
+    });
+  }
+
+  if (q.data === "ref") {
+    bot.sendMessage(
+      chatId,
+      `👥 *Referral System*\n\n` +
+        `Ajak teman pakai link ini:\n` +
+        `https://t.me/${process.env.BOT_USERNAME}?start=${userId}\n\n` +
+        `👤 Referral: *${user.refs}*\n` +
+        `🪙 Bonus: 20 koin / referral`,
+      { parse_mode: "Markdown" }
+    );
+  }
+});
+
+// ================= /ref =================
+bot.onText(/\/ref/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
   const user = getUser(userId);
 
   bot.sendMessage(
     chatId,
-    `💰 Total koin kamu: *${user.coins}*`,
+    `👥 *Referral Link*\n\n` +
+      `https://t.me/${process.env.BOT_USERNAME}?start=${userId}\n\n` +
+      `Total referral: *${user.refs}*`,
     { parse_mode: "Markdown" }
   );
-});
-
-// ========================
-// ERROR HANDLER
-// ========================
-bot.on("polling_error", (error) => {
-  console.error("Polling error:", error.message);
 });
